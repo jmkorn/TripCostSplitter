@@ -31,6 +31,16 @@ app.MapGet("/api/net", (SettlementEngine engine) =>
 	return Results.Ok(engine.GetNetBalances());
 });
 
+app.MapGet("/api/expenses", (SettlementEngine engine) =>
+{
+	return Results.Ok(engine.GetExpenses());
+});
+
+app.MapGet("/api/totals", (SettlementEngine engine) =>
+{
+	return Results.Ok(engine.GetTotalsSpent());
+});
+
 app.MapGet("/api/settle", (SettlementEngine engine) =>
 {
 	return Results.Ok(engine.SettleUp());
