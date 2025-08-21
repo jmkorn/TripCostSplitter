@@ -57,7 +57,12 @@ namespace TripSplit
 			var creditorPairs = nameAmountPairs.Where(x => x.Amount > 0m);
 			var orderedCreditors = creditorPairs.OrderByDescending(x => x.Amount);
 			var creditors = new Queue<(string Name, decimal Amount)>(orderedCreditors);
-			var debtors = new Queue<(string Name, decimal Amount)>(_names.Select((n, i) => (Name: n, Amount: _netBalances[i])).Where(x => x.Amount < 0m).Select(x => (x.Name, Amount: -x.Amount)).OrderByDescending(x => x.Amount));
+			var nameAndBalances = _names.Select((n, i) => (Name: n, Amount: _netBalances[i]));
+			var negativeBalances = nameAndBalances.Where(x => x.Amount < 0m);
+			var debtorsList = negativeBalances
+				.Select(x => (x.Name, Amount: -x.Amount))
+				.OrderByDescending(x => x.Amount);
+			var debtors = new Queue<(string Name, decimal Amount)>(debtorsList);
 			var transfers = new List<Transfer>();
 			while (creditors.Count > 0 && debtors.Count > 0)
 			{
