@@ -53,16 +53,8 @@ namespace TripSplit
 
 		public IReadOnlyList<Transfer> SettleUp()
 		{
-			var nameAmountPairs = _names.Select((n, i) => (Name: n, Amount: _netBalances[i]));
-			var creditorPairs = nameAmountPairs.Where(x => x.Amount > 0m);
-			var orderedCreditors = creditorPairs.OrderByDescending(x => x.Amount);
-			var creditors = new Queue<(string Name, decimal Amount)>(orderedCreditors);
-			var nameAndBalances = _names.Select((n, i) => (Name: n, Amount: _netBalances[i]));
-			var negativeBalances = nameAndBalances.Where(x => x.Amount < 0m);
-			var debtorsList = negativeBalances
-				.Select(x => (x.Name, Amount: -x.Amount))
-				.OrderByDescending(x => x.Amount);
-			var debtors = new Queue<(string Name, decimal Amount)>(debtorsList);
+			var creditors = new Queue<(string Name, decimal Amount)>(_names.Select((n, i) => (Name: n, Amount: _netBalances[i])).Where(x => x.Amount > 0m).OrderByDescending(x => x.Amount));
+			var debtors = new Queue<(string Name, decimal Amount)>(_names.Select((n, i) => (Name: n, Amount: _netBalances[i])).Where(x => x.Amount < 0m).Select(x => (x.Name, Amount: -x.Amount)).OrderByDescending(x => x.Amount));
 			var transfers = new List<Transfer>();
 			while (creditors.Count > 0 && debtors.Count > 0)
 			{
@@ -89,10 +81,7 @@ namespace TripSplit
 		private static Dictionary<string, decimal> AllocateShares(decimal totalAmount, IReadOnlyList<string> participants)
 		{
 			var totalCents = DecimalToCents(totalAmount);
-			var participantProjection = participants
-				.Select((person, index) => new { person, index });
-			var participantOrder = participantProjection
-				.ToDictionary(x => x.person, x => x.index, StringComparer.OrdinalIgnoreCase);
+			var participantOrder = participants.Select((person, index) => new { person, index }).ToDictionary(x => x.person, x => x.index, StringComparer.OrdinalIgnoreCase);
 			var count = participants.Count;
 			if (count <= 0) return new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
 			var basePerPerson = totalCents / count;
@@ -109,13 +98,7 @@ namespace TripSplit
 				.ToList();
 			for (int i = 0; i < remainder; i++)
 			{
-			var orderedParticipants = participants
-				.Select(p => new { Person = p, Order = participantOrder[p] })
-				.OrderBy(x => x.Order)
-				.ToList();
-			for (int i = 0; i < remainder; i++)
-			{
-				var person = orderedParticipants[i % orderedParticipants.Count].Person;
+				var person = ordered[i % ordered.Count].Person;
 				baseCentsByPerson[person] += 1;
 			}
 			var shares = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
