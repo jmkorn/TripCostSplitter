@@ -101,7 +101,13 @@ namespace TripSplit
 				.ToList();
 			for (int i = 0; i < remainder; i++)
 			{
-				var person = ordered[i % ordered.Count].Person;
+			var orderedParticipants = participants
+				.Select(p => new { Person = p, Order = participantOrder[p] })
+				.OrderBy(x => x.Order)
+				.ToList();
+			for (int i = 0; i < remainder; i++)
+			{
+				var person = orderedParticipants[i % orderedParticipants.Count].Person;
 				baseCentsByPerson[person] += 1;
 			}
 			var shares = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
