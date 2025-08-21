@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="light" />
+  <title>Expense Splitter</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --border: #e5e7eb;
+      --text: #0f172a;
+      --muted: #64748b;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --danger: #b91c1c;
+      --success: #16a34a;
+    }
+
+    /* Dark mode disabled: force light theme */
+
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      margin: 24px auto;
+      max-width: 900px;
+      color: var(--text);
+      background: var(--bg);
+      line-height: 1.5;
+    }
+
+    h1 {
+      font-size: 28px;
+      margin: 0 0 12px 0;
+      letter-spacing: -0.01em;
+    }
+
+    h2 {
+      font-size: 18px;
+      margin-top: 0;
+      margin-bottom: 8px;
+    }
+
+    section {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 16px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.04);
+    }
+
+    label { display: block; font-weight: 600; margin-top: 8px; }
+
+    input, select, textarea {
+      margin-top: 4px;
+      padding: 10px 12px;
+      font-size: 14px;
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--card-bg);
+      color: var(--text);
+      transition: border-color 120ms ease, box-shadow 120ms ease;
+    }
+
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 20%, transparent);
+    }
+
+    button {
+      margin-top: 4px;
+      font-size: 14px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 10px 14px;
+      border-radius: 10px;
+      border: 1px solid transparent;
+      background: var(--primary);
+      color: #fff;
+      cursor: pointer;
+      transition: background-color 140ms ease, box-shadow 140ms ease, border-color 140ms ease, color 140ms ease;
+    }
+
+    .btn:hover { background: var(--primary-hover); }
+    .btn:focus { box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 20%, transparent); outline: none; }
+
+    .btn-danger { background: var(--danger); }
+    .btn-danger:hover { filter: brightness(0.95); }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--text);
+      border-color: var(--border);
+    }
+
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+    .pill {
+      padding: 6px 10px;
+      background: color-mix(in srgb, var(--primary) 10%, var(--card-bg));
+      color: var(--text);
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      margin-right: 6px;
+      margin-bottom: 6px;
+      font-weight: 500;
+    }
+
+    .list { margin-top: 8px; display: flex; flex-wrap: wrap; }
+
+    .muted { color: var(--muted); }
+
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    ul { list-style: none; padding-left: 0; margin: 0; }
+    ul li { padding: 6px 0; border-bottom: 1px dashed var(--border); }
+    ul li:last-child { border-bottom: 0; }
+    #net li.pos { color: var(--success); font-weight: 600; }
+    #net li.neg { color: var(--danger); font-weight: 600; }
+
+    code { background: #f3f4f6; padding: 2px 6px; border-radius: 4px; }
+  </style>
+  <script>
+    // In-memory UI state
+    // In-memory UI state encapsulated in a namespace to avoid polluting the global namespace
+    window.ExpenseSplitter = {
+      state: { people: [], expenses: [] },
+      peopleCache: []
+    };
+
+    async function api(path, options) {
+      const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...options });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json().catch(() => null);
+    }
+
+    async function refreshAll() {
+      await refreshPeople();
+      await refreshTransfersPreview();
+      await renderLocalNet();
+    }
+
+    async function refreshPeople() {
+      const people = await api('/api/people');
+      window.peopleCache = people;
+      const c = document.getElementById('people');
+      c.innerHTML = '';
+      people.forEach(p => {
+        const span = document.createElement('span');
+        span.className = 'pill';
+        span.textContent = p;
+        c.appendChild(span);
+      });
+      const payer = document.getElementById('payer');
+      payer.innerHTML = '';
+      people.forEach(p => {
+        const o1 = document.createElement('option'); o1.value = p; o1.textContent = p; payer.appendChild(o1);
+      });
+      payer.onchange = rebuildParticipantsOptions;
+      rebuildParticipantsOptions();
+      // Sync local state people with server people
+      window.state.people = [...people];
+    }
+
+    function rebuildParticipantsOptions() {
+      const payer = document.getElementById('payer').value;
+      const participants = document.getElementById('participants');
+      participants.innerHTML = '';
+      (window.peopleCache || []).forEach(p => {
+        if (p === payer) return; // exclude payer; they are auto-included
+        const o2 = document.createElement('option'); o2.value = p; o2.textContent = p; participants.appendChild(o2);
+      });
+    }
+
+    async function renderLocalNet() {
+      let net;
+      if ((window.state.expenses || []).length === 0) {
+        // Fallback to server net if local has no expenses yet
+        net = await api('/api/net');
+      } else {
+        net = computeLocalNet(window.state.people, window.state.expenses);
+      }
+      const c = document.getElementById('net');
+      c.innerHTML = '';
+      net.forEach(x => {
+        const li = document.createElement('li');
+        const sign = x.net >= 0 ? '+' : '';
+        li.className = x.net >= 0 ? 'pos' : 'neg';
+        li.textContent = `${x.name}: ${sign}${x.net.toLocaleString(undefined, { style: 'currency', currency: 'USD' })}`;
+        c.appendChild(li);
+      });
+    }
+
+    function computeLocalNet(people, expenses) {
+      const net = new Map();
+      people.forEach(p => net.set(p, 0));
+      for (const e of expenses) {
+        const participants = Array.from(new Set([...(e.participants || []), e.payer]));
+        const shares = allocateShares(e.amount, participants);
+        net.set(e.payer, (net.get(e.payer) || 0) + e.amount);
+        for (const [person, share] of shares.entries()) {
+          net.set(person, (net.get(person) || 0) - share);
+        }
+      }
+      return people.map(name => ({ name, net: round2(net.get(name) || 0) }));
+    }
+
+    function allocateShares(totalAmount, participants) {
+      const totalCents = decimalToCents(totalAmount);
+      const count = participants.length;
+      if (count <= 0) return new Map();
+      const basePerPerson = Math.floor(totalCents / count);
+      let remainder = totalCents - (basePerPerson * count);
+      const baseCentsByPerson = new Map();
+      for (const p of participants) baseCentsByPerson.set(p, basePerPerson);
+      // Distribute remaining cents deterministically by participant order
+      for (let i = 0; i < remainder; i++) {
+        const person = participants[i % participants.length];
+        baseCentsByPerson.set(person, baseCentsByPerson.get(person) + 1);
+      }
+      const shares = new Map();
+      for (const p of participants) {
+        shares.set(p, centsToDecimal(baseCentsByPerson.get(p)));
+      }
+      return shares;
+    }
+
+    function decimalToCents(amount) { return Math.round(Number(amount) * 100); }
+    function centsToDecimal(cents) { return cents / 100; }
+    function round2(x) { return Math.round(x * 100) / 100; }
+
+    async function refreshTransfersPreview() {
+      const transfers = await api('/api/settle');
+      const c = document.getElementById('settle');
+      c.innerHTML = '';
+      transfers.forEach(t => {
+        const li = document.createElement('li');
+        li.textContent = `${t.from} → ${t.to}: ${t.amount.toLocaleString(undefined, { style: 'currency', currency: 'USD' })}`;
+        c.appendChild(li);
+      });
+    }
+
+    async function addPerson(ev) {
+      ev.preventDefault();
+      const name = document.getElementById('personName').value.trim();
+      if (!name) return;
+      await api('/api/people', { method: 'POST', body: JSON.stringify({ name }) });
+      document.getElementById('personName').value = '';
+      // Update local state
+      if (!window.state.people.includes(name)) window.state.people.push(name);
+      await refreshPeople();
+      await renderLocalNet();
+    }
+
+    function getSelectedParticipants() {
+      const sel = document.getElementById('participants');
+      return Array.from(sel.selectedOptions).map(o => o.value);
+    }
+
+    async function addExpense(ev) {
+      ev.preventDefault();
+      const description = document.getElementById('desc').value.trim();
+      const amount = Number(document.getElementById('amount').value);
+      const payer = document.getElementById('payer').value;
+      const participants = getSelectedParticipants();
+      if (!description || !isFinite(amount) || amount <= 0 || !payer || participants.length === 0) {
+        alert('Please fill description, positive amount, payer, and at least one participant.');
+        return;
+      }
+      await api('/api/expenses', { method: 'POST', body: JSON.stringify({ description, amount, payer, participants }) });
+      // Update local state and recompute
+      window.state.expenses.push({ description, amount, payer, participants });
+      document.getElementById('desc').value = '';
+      document.getElementById('amount').value = '';
+      await renderLocalNet();
+      await refreshTransfersPreview();
+    }
+
+    async function resetAll() {
+      await api('/api/reset', { method: 'POST' });
+      window.state = { people: [], expenses: [] };
+      await refreshAll();
+    }
+
+    window.addEventListener('DOMContentLoaded', refreshAll);
+  </script>
+</head>
+<body>
+  <h1>Expense Splitter</h1>
+  <p class="muted" style="margin-top: -6px; margin-bottom: 16px;">Split trip expenses quickly.</p>
+
+  <section>
+    <div class="actions">
+      <form onsubmit="addPerson(event)">
+        <label>Add person</label>
+        <div class="row">
+          <input id="personName" placeholder="Name" />
+          <button type="submit" class="btn">Add</button>
+          <button type="button" onclick="resetAll()" class="btn btn-danger">Reset</button>
+        </div>
+        <div class="muted">Tip: names are case-insensitive.</div>
+      </form>
+    </div>
+    <div id="people" class="list"></div>
+  </section>
+
+  <section>
+    <form onsubmit="addExpense(event)">
+      <label>Description</label>
+      <input id="desc" placeholder="Dinner, Gas, Hotel..." />
+
+      <div class="grid">
+        <div>
+          <label>Amount</label>
+          <input id="amount" type="number" step="0.01" min="0" placeholder="0.00" />
+        </div>
+        <div>
+          <label>Payer</label>
+          <select id="payer"></select>
+        </div>
+      </div>
+
+      <label>Participants (multi-select)</label>
+      <select id="participants" multiple size="5" style="width: 100%;"></select>
+      <div class="muted">Payer is automatically included; select the other people sharing this expense.</div>
+
+      <!-- Weights removed -->
+
+      <div class="actions" style="margin-top: 8px;">
+        <button type="submit" class="btn">Add expense</button>
+      </div>
+      <br>
+      <div class="muted">Expenses are split equally among participants.</div>
+    </form>
+  </section>
+
+  <section>
+    <h2>Net balances</h2>
+    <ul id="net"></ul>
+  </section>
+
+  <section>
+    <h2>Suggested transfers</h2>
+    <ul id="settle"></ul>
+    <div class="muted">This is a live preview based on current balances.</div>
+  </section>
+
+</body>
+</html>
+
+
