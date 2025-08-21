@@ -89,7 +89,10 @@ namespace TripSplit
 		private static Dictionary<string, decimal> AllocateShares(decimal totalAmount, IReadOnlyList<string> participants)
 		{
 			var totalCents = DecimalToCents(totalAmount);
-			var participantOrder = participants.Select((person, index) => new { person, index }).ToDictionary(x => x.person, x => x.index, StringComparer.OrdinalIgnoreCase);
+			var participantProjection = participants
+				.Select((person, index) => new { person, index });
+			var participantOrder = participantProjection
+				.ToDictionary(x => x.person, x => x.index, StringComparer.OrdinalIgnoreCase);
 			var count = participants.Count;
 			if (count <= 0) return new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
 			var basePerPerson = totalCents / count;
