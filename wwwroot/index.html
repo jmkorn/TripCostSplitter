@@ -131,7 +131,11 @@
   </style>
   <script>
     // In-memory UI state
-    window.state = { people: [], expenses: [] };
+    // In-memory UI state encapsulated in a namespace to avoid polluting the global namespace
+    window.ExpenseSplitter = {
+      state: { people: [], expenses: [] },
+      peopleCache: []
+    };
 
     async function api(path, options) {
       const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...options });
