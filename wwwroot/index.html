@@ -143,6 +143,8 @@
       await refreshPeople();
       await refreshTransfersPreview();
       await renderLocalNet();
+      await refreshExpenses();
+      await refreshTotals();
     }
 
     async function refreshPeople() {
@@ -279,12 +281,56 @@
       document.getElementById('amount').value = '';
       await renderLocalNet();
       await refreshTransfersPreview();
+  await refreshExpenses();
+  await refreshTotals();
     }
 
     async function resetAll() {
       await api('/api/reset', { method: 'POST' });
       window.state = { people: [], expenses: [] };
       await refreshAll();
+    }
+
+    async function refreshExpenses() {
+      const list = await api('/api/expenses');
+      const byPayer = {};
+      list.forEach(e => {
+        byPayer[e.payer] = byPayer[e.payer] || [];
+        byPayer[e.payer].push(e);
+      });
+      const container = document.getElementById('expenses');
+      if (!container) return;
+      container.innerHTML = '';
+      const payers = Object.keys(byPayer).sort((a,b)=>a.localeCompare(b));
+      if (payers.length === 0) { container.innerHTML = '<div class="muted">No expenses yet.</div>'; return; }
+      payers.forEach(p => {
+        const sec = document.createElement('div');
+        const header = document.createElement('h3');
+        header.textContent = p;
+        header.style.margin = '12px 0 4px';
+        sec.appendChild(header);
+        const ul = document.createElement('ul');
+        byPayer[p].forEach(e => {
+          const li = document.createElement('li');
+          const participants = e.participants.join(', ');
+          li.textContent = `${e.description} – ${e.amount.toLocaleString(undefined,{style:'currency',currency:'USD'})} (participants: ${participants})`;
+          ul.appendChild(li);
+        });
+        sec.appendChild(ul);
+        container.appendChild(sec);
+      });
+    }
+
+    async function refreshTotals() {
+      const totals = await api('/api/totals');
+      const c = document.getElementById('totals');
+      if (!c) return;
+      c.innerHTML = '';
+      totals.forEach(t => {
+        const li = document.createElement('li');
+        li.textContent = `${t.name}: ${t.spent.toLocaleString(undefined,{style:'currency',currency:'USD'})}`;
+        c.appendChild(li);
+      });
     }
 
     window.addEventListener('DOMContentLoaded', refreshAll);
@@ -348,6 +394,22 @@
     <h2>Suggested transfers</h2>
     <ul id="settle"></ul>
     <div class="muted">This is a live preview based on current balances.</div>
+  </section>
+
+  <section>
+    <h2>Totals spent per person</h2>
+    <ul id="totals"></ul>
+  </section>
+  
+  <section>
+    <h2>Expenses by payer</h2>
+    <div id="expenses"></div>
+  </section>
+
+  <section>
+    <h2>Export</h2>
+    <button type="button" class="btn" onclick="window.location='/api/export/excel'">Export to Excel</button>
+    <div class="muted" style="margin-top:8px;">Downloads an .xlsx with people, totals, net balances, expenses, and transfers.</div>
   </section>
 
 </body>

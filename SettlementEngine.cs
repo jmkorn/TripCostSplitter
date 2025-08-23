@@ -7,15 +7,20 @@ namespace TripSplit
 	public sealed class SettlementEngine
 	{
 		public sealed record Transfer(string From, string To, decimal Amount);
+		public sealed record Expense(string Description, decimal Amount, string Payer, IReadOnlyList<string> Participants);
+		public sealed record NetBalance(string Name, decimal Net);
+		public sealed record TotalSpent(string Name, decimal Spent);
 		private readonly Dictionary<string, int> _nameToIndex = new(StringComparer.OrdinalIgnoreCase);
 		private readonly List<string> _names = new();
 		private readonly List<decimal> _netBalances = new();
+		private readonly List<Expense> _expenses = new();
 
 		public void Clear()
 		{
 			_nameToIndex.Clear();
 			_names.Clear();
 			_netBalances.Clear();
+			_expenses.Clear();
 		}
 
 		public void AddPerson(string name)
@@ -30,6 +35,7 @@ namespace TripSplit
 		public void AddExpense(string description, decimal amount, string payer, IEnumerable<string> participants)
 		{
 			if (amount <= 0m) throw new ArgumentOutOfRangeException(nameof(amount), "Amount must be positive.");
+			if (string.IsNullOrWhiteSpace(description)) throw new ArgumentException("Description required", nameof(description));
 			if (!_nameToIndex.ContainsKey(payer)) throw new ArgumentException($"Unknown payer {payer}. Add them first.");
 			var participantList = participants?.Distinct(StringComparer.OrdinalIgnoreCase).ToList() ?? new List<string>();
 			if (participantList.Count == 0) throw new ArgumentException("At least one participant is required.", nameof(participants));
@@ -49,6 +55,7 @@ namespace TripSplit
 			{
 				_netBalances[_nameToIndex[kvp.Key]] -= kvp.Value;
 			}
+			_expenses.Add(new Expense(description, Math.Round(amount, 2, MidpointRounding.AwayFromZero), payer, participantList.ToList()));
 		}
 
 		public IReadOnlyList<Transfer> SettleUp()
@@ -71,9 +78,20 @@ namespace TripSplit
 			return transfers;
 		}
 
-		public IReadOnlyList<(string Name, decimal Net)> GetNetBalances()
+		public IReadOnlyList<NetBalance> GetNetBalances() => _names
+			.Select((n, i) => new NetBalance(n, Math.Round(_netBalances[i], 2, MidpointRounding.AwayFromZero)))
+			.ToList();
+
+		public IReadOnlyList<Expense> GetExpenses() => _expenses.ToList();
+
+		public IReadOnlyList<TotalSpent> GetTotalsSpent()
 		{
-			return _names.Select((n, i) => (n, Math.Round(_netBalances[i], 2, MidpointRounding.AwayFromZero))).ToList();
+			var byPayer = _expenses
+				.GroupBy(e => e.Payer, StringComparer.OrdinalIgnoreCase)
+				.ToDictionary(g => g.Key, g => g.Sum(x => x.Amount), StringComparer.OrdinalIgnoreCase);
+			return _names
+				.Select(n => new TotalSpent(n, Math.Round(byPayer.TryGetValue(n, out var amt) ? amt : 0m, 2, MidpointRounding.AwayFromZero)))
+				.ToList();
 		}
 
 		private static decimal Min(decimal a, decimal b) => a < b ? a : b;

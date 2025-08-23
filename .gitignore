@@ -1,0 +1,15 @@
+# Ignore .NET build artifacts
+bin/
+obj/
+**/bin/
+**/obj/
+
+# (Optional) user-specific files
+*.user
+*.rsuser
+*.suo
+*.userosscache
+*.sln.docstates
+
+# (Optional) VS Code settings
+.vscode/
