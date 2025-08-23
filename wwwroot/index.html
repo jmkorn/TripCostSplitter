@@ -128,6 +128,15 @@
     #net li.neg { color: var(--danger); font-weight: 600; }
 
     code { background: #f3f4f6; padding: 2px 6px; border-radius: 4px; }
+  table.expenses { width: 100%; border-collapse: collapse; margin: 4px 0 16px; }
+  table.expenses th, table.expenses td { padding: 6px 8px; border-bottom: 1px solid var(--border); font-size: 13px; text-align: left; vertical-align: top; }
+  table.expenses th { background: color-mix(in srgb, var(--primary) 8%, var(--card-bg)); font-weight: 600; }
+  table.expenses tbody tr:last-child td { border-bottom: 0; }
+  table.expenses button.btn { padding: 4px 8px; font-size: 12px; }
+  table.transfers { width: 100%; border-collapse: collapse; margin: 4px 0 8px; }
+  table.transfers th, table.transfers td { padding: 6px 8px; border-bottom: 1px solid var(--border); font-size: 13px; }
+  table.transfers th { background: color-mix(in srgb, var(--primary) 8%, var(--card-bg)); text-align: left; }
+  table.transfers tbody tr:last-child td { border-bottom: 0; }
   </style>
   <script>
     // In-memory UI state
@@ -141,8 +150,9 @@
 
     async function refreshAll() {
       await refreshPeople();
-      await refreshTransfersPreview();
-      await renderLocalNet();
+  await refreshExpenses(); // ensure local expenses up to date
+  await refreshTransfersPreview();
+  await renderLocalNet(); // compute net after syncing expenses
       await refreshExpenses();
       await refreshTotals();
     }
@@ -153,10 +163,24 @@
       const c = document.getElementById('people');
       c.innerHTML = '';
       people.forEach(p => {
-        const span = document.createElement('span');
-        span.className = 'pill';
-        span.textContent = p;
-        c.appendChild(span);
+        const wrapper = document.createElement('span');
+        wrapper.className = 'pill';
+        wrapper.style.display = 'inline-flex';
+        wrapper.style.alignItems = 'center';
+        const nameSpan = document.createElement('span');
+        nameSpan.textContent = p;
+        const del = document.createElement('button');
+        del.textContent = '✕';
+        del.title = 'Remove person';
+        del.style.marginLeft = '6px';
+        del.style.background = 'transparent';
+        del.style.border = 'none';
+        del.style.cursor = 'pointer';
+        del.style.color = '#b91c1c';
+        del.onclick = async () => { if (confirm('Remove person ' + p + ' and their related expenses?')) { await api('/api/people/' + encodeURIComponent(p), { method: 'DELETE' }); await refreshAll(); } };
+        wrapper.appendChild(nameSpan);
+        wrapper.appendChild(del);
+        c.appendChild(wrapper);
       });
       const payer = document.getElementById('payer');
       payer.innerHTML = '';
@@ -238,12 +262,21 @@
 
     async function refreshTransfersPreview() {
       const transfers = await api('/api/settle');
-      const c = document.getElementById('settle');
-      c.innerHTML = '';
+      const tbody = document.getElementById('settleBody');
+      if (!tbody) return;
+      tbody.innerHTML = '';
+      if (!transfers || transfers.length === 0) {
+        const tr = document.createElement('tr');
+        const td = document.createElement('td'); td.colSpan = 3; td.className = 'muted'; td.textContent = 'No transfers needed.';
+        tr.appendChild(td); tbody.appendChild(tr); return;
+      }
       transfers.forEach(t => {
-        const li = document.createElement('li');
-        li.textContent = `${t.from} → ${t.to}: ${t.amount.toLocaleString(undefined, { style: 'currency', currency: 'USD' })}`;
-        c.appendChild(li);
+        const tr = document.createElement('tr');
+        const tdFrom = document.createElement('td'); tdFrom.textContent = t.from;
+        const tdTo = document.createElement('td'); tdTo.textContent = t.to;
+        const tdAmt = document.createElement('td'); tdAmt.textContent = t.amount.toLocaleString(undefined, { style: 'currency', currency: 'USD' }); tdAmt.style.fontWeight = '600';
+        tr.appendChild(tdFrom); tr.appendChild(tdTo); tr.appendChild(tdAmt);
+        tbody.appendChild(tr);
       });
     }
 
@@ -298,6 +331,8 @@
         byPayer[e.payer] = byPayer[e.payer] || [];
         byPayer[e.payer].push(e);
       });
+  // sync local state to allow accurate client-side net recomputation
+  window.state.expenses = list.map(e => ({ description: e.description, amount: e.amount, payer: e.payer, participants: e.participants }));
       const container = document.getElementById('expenses');
       if (!container) return;
       container.innerHTML = '';
@@ -309,16 +344,44 @@
         header.textContent = p;
         header.style.margin = '12px 0 4px';
         sec.appendChild(header);
-        const ul = document.createElement('ul');
+        const table = document.createElement('table');
+        table.className = 'expenses';
+        const thead = document.createElement('thead');
+        thead.innerHTML = '<tr><th style="width:40%">Description</th><th style="width:15%">Amount</th><th>Participants</th><th style="width:90px">Actions</th></tr>';
+        table.appendChild(thead);
+        const tbody = document.createElement('tbody');
         byPayer[p].forEach(e => {
-          const li = document.createElement('li');
+          const tr = document.createElement('tr');
           const participants = e.participants.join(', ');
-          li.textContent = `${e.description} – ${e.amount.toLocaleString(undefined,{style:'currency',currency:'USD'})} (participants: ${participants})`;
-          ul.appendChild(li);
+          const tdDesc = document.createElement('td'); tdDesc.textContent = e.description;
+          const tdAmt = document.createElement('td'); tdAmt.textContent = e.amount.toLocaleString(undefined,{style:'currency',currency:'USD'});
+          const tdParts = document.createElement('td'); tdParts.textContent = participants;
+          const tdActions = document.createElement('td');
+          const del = document.createElement('button');
+          del.textContent = 'Delete';
+          del.className = 'btn btn-ghost';
+          del.onclick = async () => { if (confirm('Delete this expense?')) { await api('/api/expenses/' + e.id, { method: 'DELETE' }); await refreshAll(); } };
+          tdActions.appendChild(del);
+          tr.appendChild(tdDesc);
+          tr.appendChild(tdAmt);
+          tr.appendChild(tdParts);
+          tr.appendChild(tdActions);
+          tbody.appendChild(tr);
         });
-        sec.appendChild(ul);
+        table.appendChild(tbody);
+        sec.appendChild(table);
         container.appendChild(sec);
       });
+    }
+
+    async function importPeopleFromFile(ev) {
+      const fileInput = document.getElementById('peopleFile');
+      const file = fileInput.files[0];
+      if (!file) return;
+      const text = await file.text();
+      await fetch('/api/people/import', { method: 'POST', body: text });
+      fileInput.value = '';
+      await refreshAll();
     }
 
     async function refreshTotals() {
@@ -349,8 +412,12 @@
           <button type="submit" class="btn">Add</button>
           <button type="button" onclick="resetAll()" class="btn btn-danger">Reset</button>
         </div>
-        <div class="muted">Tip: names are case-insensitive.</div>
       </form>
+    </div>
+    <div style="margin-top:12px;">
+      <label>Import people from file (comma, semicolon, or newline separated)</label>
+      <input type="file" id="peopleFile" accept="text/plain" />
+      <button type="button" class="btn" onclick="importPeopleFromFile()">Import</button>
     </div>
     <div id="people" class="list"></div>
   </section>
@@ -392,7 +459,12 @@
 
   <section>
     <h2>Suggested transfers</h2>
-    <ul id="settle"></ul>
+    <table class="transfers">
+      <thead>
+        <tr><th>From</th><th>To</th><th>Amount</th></tr>
+      </thead>
+      <tbody id="settleBody"></tbody>
+    </table>
     <div class="muted">This is a live preview based on current balances.</div>
   </section>
 

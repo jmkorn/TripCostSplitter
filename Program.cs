@@ -21,10 +21,29 @@ app.MapPost("/api/people", (SettlementEngine engine, PersonDto dto) =>
 	return Results.Ok();
 });
 
+app.MapPost("/api/people/import", async (SettlementEngine engine, HttpRequest req) =>
+{
+	using var reader = new StreamReader(req.Body);
+	var text = await reader.ReadToEndAsync();
+	var names = text.Split(new[] { '\n', '\r', ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+	engine.ImportPeople(names);
+	return Results.Ok();
+});
+
+app.MapDelete("/api/people/{name}", (SettlementEngine engine, string name) =>
+{
+	return engine.RemovePerson(name) ? Results.Ok() : Results.NotFound();
+});
+
 app.MapPost("/api/expenses", (SettlementEngine engine, ExpenseDto dto) =>
 {
 	engine.AddExpense(dto.Description, dto.Amount, dto.Payer, dto.Participants);
 	return Results.Ok();
+});
+
+app.MapDelete("/api/expenses/{id:guid}", (SettlementEngine engine, Guid id) =>
+{
+	return engine.RemoveExpense(id) ? Results.Ok() : Results.NotFound();
 });
 
 app.MapGet("/api/net", (SettlementEngine engine) =>
