@@ -7,7 +7,7 @@ namespace TripSplit
 	public sealed class SettlementEngine
 	{
 		public sealed record Transfer(string From, string To, decimal Amount);
-		public sealed record Expense(string Description, decimal Amount, string Payer, IReadOnlyList<string> Participants);
+		public sealed record Expense(Guid Id, string Description, decimal Amount, string Payer, IReadOnlyList<string> Participants);
 		public sealed record NetBalance(string Name, decimal Net);
 		public sealed record TotalSpent(string Name, decimal Spent);
 		private readonly Dictionary<string, int> _nameToIndex = new(StringComparer.OrdinalIgnoreCase);
@@ -55,7 +55,55 @@ namespace TripSplit
 			{
 				_netBalances[_nameToIndex[kvp.Key]] -= kvp.Value;
 			}
-			_expenses.Add(new Expense(description, Math.Round(amount, 2, MidpointRounding.AwayFromZero), payer, participantList.ToList()));
+			_expenses.Add(new Expense(Guid.NewGuid(), description, Math.Round(amount, 2, MidpointRounding.AwayFromZero), payer, participantList.ToList()));
+		}
+
+		public void ImportPeople(IEnumerable<string> names)
+		{
+			if (names == null) return;
+			foreach (var n in names.Select(n => n?.Trim()).Where(n => !string.IsNullOrWhiteSpace(n)))
+			{
+				AddPerson(n!);
+			}
+		}
+
+		public bool RemoveExpense(Guid id)
+		{
+			var idx = _expenses.FindIndex(e => e.Id == id);
+			if (idx < 0) return false;
+			_expenses.RemoveAt(idx);
+			RecalculateNetBalances();
+			return true;
+		}
+
+		public bool RemovePerson(string name)
+		{
+			if (!_nameToIndex.ContainsKey(name)) return false;
+			// Remove expenses referencing this person
+			_expenses.RemoveAll(e => e.Payer.Equals(name, StringComparison.OrdinalIgnoreCase) || e.Participants.Contains(name, StringComparer.OrdinalIgnoreCase));
+			// Remove person from dictionaries/lists
+			var index = _nameToIndex[name];
+			_nameToIndex.Remove(name);
+			_names.RemoveAt(index);
+			_netBalances.RemoveAt(index);
+			// Rebuild index map
+			for (int i = 0; i < _names.Count; i++) _nameToIndex[_names[i]] = i;
+			RecalculateNetBalances();
+			return true;
+		}
+
+		private void RecalculateNetBalances()
+		{
+			for (int i = 0; i < _netBalances.Count; i++) _netBalances[i] = 0m;
+			foreach (var exp in _expenses)
+			{
+				var shareByPerson = AllocateShares(exp.Amount, exp.Participants);
+				_netBalances[_nameToIndex[exp.Payer]] += exp.Amount;
+				foreach (var kvp in shareByPerson)
+				{
+					_netBalances[_nameToIndex[kvp.Key]] -= kvp.Value;
+				}
+			}
 		}
 
 		public IReadOnlyList<Transfer> SettleUp()
