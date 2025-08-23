@@ -137,6 +137,16 @@
   table.transfers th, table.transfers td { padding: 6px 8px; border-bottom: 1px solid var(--border); font-size: 13px; }
   table.transfers th { background: color-mix(in srgb, var(--primary) 8%, var(--card-bg)); text-align: left; }
   table.transfers tbody tr:last-child td { border-bottom: 0; }
+  table.balances, table.totals { width:100%; border-collapse: collapse; margin:4px 0 8px; }
+  table.balances th, table.balances td, table.totals th, table.totals td { padding:6px 8px; border-bottom:1px solid var(--border); font-size:13px; text-align:left; }
+  table.balances th, table.totals th { background: color-mix(in srgb, var(--primary) 8%, var(--card-bg)); }
+  table.balances tbody tr:last-child td, table.totals tbody tr:last-child td { border-bottom:0; }
+  table.balances td.pos, table.totals td.pos { color: var(--success); font-weight:600; }
+  table.balances td.neg { color: var(--danger); font-weight:600; }
+  .modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,0.4); display:flex; align-items:center; justify-content:center; z-index:1000; }
+  .modal { background:var(--card-bg); padding:20px; border-radius:12px; max-width:600px; width:100%; box-shadow:0 10px 30px rgba(0,0,0,0.2); }
+  .modal h3 { margin-top:0; }
+  .modal pre { background:#f3f4f6; padding:12px; border-radius:8px; max-height:260px; overflow:auto; font-size:12px; }
   </style>
   <script>
     // In-memory UI state
@@ -150,9 +160,9 @@
 
     async function refreshAll() {
       await refreshPeople();
-  await refreshExpenses(); // ensure local expenses up to date
-  await refreshTransfersPreview();
-  await renderLocalNet(); // compute net after syncing expenses
+      await refreshExpenses(); // ensure local expenses up to date
+      await refreshTransfersPreview();
+      await renderLocalNet(); // compute net after syncing expenses
       await refreshExpenses();
       await refreshTotals();
     }
@@ -206,19 +216,22 @@
     async function renderLocalNet() {
       let net;
       if ((window.state.expenses || []).length === 0) {
-        // Fallback to server net if local has no expenses yet
         net = await api('/api/net');
       } else {
         net = computeLocalNet(window.state.people, window.state.expenses);
       }
-      const c = document.getElementById('net');
-      c.innerHTML = '';
+      const tbody = document.getElementById('netBody');
+      if (!tbody) return;
+      tbody.innerHTML = '';
       net.forEach(x => {
-        const li = document.createElement('li');
+        const tr = document.createElement('tr');
+        const tdName = document.createElement('td'); tdName.textContent = x.name;
+        const tdNet = document.createElement('td');
         const sign = x.net >= 0 ? '+' : '';
-        li.className = x.net >= 0 ? 'pos' : 'neg';
-        li.textContent = `${x.name}: ${sign}${x.net.toLocaleString(undefined, { style: 'currency', currency: 'USD' })}`;
-        c.appendChild(li);
+        tdNet.textContent = sign + x.net.toLocaleString(undefined, { style: 'currency', currency: 'USD' });
+        tdNet.className = x.net >= 0 ? 'pos' : 'neg';
+        tr.appendChild(tdName); tr.appendChild(tdNet);
+        tbody.appendChild(tr);
       });
     }
 
@@ -274,7 +287,8 @@
         const tr = document.createElement('tr');
         const tdFrom = document.createElement('td'); tdFrom.textContent = t.from;
         const tdTo = document.createElement('td'); tdTo.textContent = t.to;
-        const tdAmt = document.createElement('td'); tdAmt.textContent = t.amount.toLocaleString(undefined, { style: 'currency', currency: 'USD' }); tdAmt.style.fontWeight = '600';
+        const tdAmt = document.createElement('td'); tdAmt.textContent = t.amount.toLocaleString(undefined, { style: 'currency', currency: 'USD' }); 
+        tdAmt.style.fontWeight = '600';
         tr.appendChild(tdFrom); tr.appendChild(tdTo); tr.appendChild(tdAmt);
         tbody.appendChild(tr);
       });
@@ -322,6 +336,32 @@
       await api('/api/reset', { method: 'POST' });
       window.state = { people: [], expenses: [] };
       await refreshAll();
+    }
+
+    function closeExplain() {
+      const m = document.getElementById('explainModal');
+      if (m) m.remove();
+    }
+
+    async function explainSettlement() {
+      const btn = document.getElementById('explainBtn');
+      if (btn) { btn.disabled = true; btn.textContent = 'Generating...'; }
+      try {
+        const res = await api('/api/explain');
+        const backdrop = document.createElement('div'); backdrop.className = 'modal-backdrop'; backdrop.id = 'explainModal';
+        const modal = document.createElement('div'); modal.className = 'modal';
+        const h = document.createElement('h3'); h.textContent = 'Settlement Explanation'; modal.appendChild(h);
+        const p = document.createElement('p'); p.textContent = res.explanation || 'Explanation unavailable.'; modal.appendChild(p);
+        const detailsToggle = document.createElement('button'); detailsToggle.className='btn btn-ghost'; detailsToggle.textContent='Show prompt';
+        const pre = document.createElement('pre'); pre.style.display='none'; pre.textContent = res.prompt;
+        detailsToggle.onclick = () => { pre.style.display = pre.style.display==='none' ? 'block':'none'; detailsToggle.textContent = pre.style.display==='none' ? 'Show prompt':'Hide prompt'; };
+        modal.appendChild(detailsToggle);
+        modal.appendChild(pre);
+        const close = document.createElement('button'); close.className='btn'; close.style.marginTop='12px'; close.textContent='Close'; close.onclick=closeExplain; modal.appendChild(close);
+        backdrop.appendChild(modal);
+        document.body.appendChild(backdrop);
+      } catch (e) { alert('Failed to generate explanation: ' + e); }
+      finally { if (btn) { btn.disabled = false; btn.textContent = 'Explain settlement'; } }
     }
 
     async function refreshExpenses() {
@@ -386,13 +426,16 @@
 
     async function refreshTotals() {
       const totals = await api('/api/totals');
-      const c = document.getElementById('totals');
-      if (!c) return;
-      c.innerHTML = '';
+      const tbody = document.getElementById('totalsBody');
+      if (!tbody) return;
+      tbody.innerHTML = '';
+      totals.sort((a,b)=> b.spent - a.spent);
       totals.forEach(t => {
-        const li = document.createElement('li');
-        li.textContent = `${t.name}: ${t.spent.toLocaleString(undefined,{style:'currency',currency:'USD'})}`;
-        c.appendChild(li);
+        const tr = document.createElement('tr');
+        const tdName = document.createElement('td'); tdName.textContent = t.name;
+        const tdAmt = document.createElement('td'); tdAmt.textContent = t.spent.toLocaleString(undefined,{style:'currency',currency:'USD'}); tdAmt.className = 'pos';
+        tr.appendChild(tdName); tr.appendChild(tdAmt);
+        tbody.appendChild(tr);
       });
     }
 
@@ -454,7 +497,10 @@
 
   <section>
     <h2>Net balances</h2>
-    <ul id="net"></ul>
+    <table class="balances">
+      <thead><tr><th>Name</th><th>Net</th></tr></thead>
+      <tbody id="netBody"></tbody>
+    </table>
   </section>
 
   <section>
@@ -466,11 +512,17 @@
       <tbody id="settleBody"></tbody>
     </table>
     <div class="muted">This is a live preview based on current balances.</div>
+    <div style="margin-top:8px;">
+      <button id="explainBtn" type="button" class="btn" onclick="explainSettlement()">Explain settlement</button>
+    </div>
   </section>
 
   <section>
     <h2>Totals spent per person</h2>
-    <ul id="totals"></ul>
+    <table class="totals">
+      <thead><tr><th>Name</th><th>Spent</th></tr></thead>
+      <tbody id="totalsBody"></tbody>
+    </table>
   </section>
   
   <section>
