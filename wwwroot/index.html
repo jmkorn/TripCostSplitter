@@ -143,8 +143,8 @@
       await refreshPeople();
       await refreshTransfersPreview();
       await renderLocalNet();
-  await refreshExpenses();
-  await refreshTotals();
+      await refreshExpenses();
+      await refreshTotals();
     }
 
     async function refreshPeople() {
@@ -400,10 +400,16 @@
     <h2>Totals spent per person</h2>
     <ul id="totals"></ul>
   </section>
-
+  
   <section>
     <h2>Expenses by payer</h2>
     <div id="expenses"></div>
+  </section>
+
+  <section>
+    <h2>Export</h2>
+    <button type="button" class="btn" onclick="window.location='/api/export/excel'">Export to Excel</button>
+    <div class="muted" style="margin-top:8px;">Downloads an .xlsx with people, totals, net balances, expenses, and transfers.</div>
   </section>
 
 </body>
