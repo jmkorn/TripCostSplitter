@@ -143,6 +143,10 @@
   table.balances tbody tr:last-child td, table.totals tbody tr:last-child td { border-bottom:0; }
   table.balances td.pos, table.totals td.pos { color: var(--success); font-weight:600; }
   table.balances td.neg { color: var(--danger); font-weight:600; }
+  .modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,0.4); display:flex; align-items:center; justify-content:center; z-index:1000; }
+  .modal { background:var(--card-bg); padding:20px; border-radius:12px; max-width:600px; width:100%; box-shadow:0 10px 30px rgba(0,0,0,0.2); }
+  .modal h3 { margin-top:0; }
+  .modal pre { background:#f3f4f6; padding:12px; border-radius:8px; max-height:260px; overflow:auto; font-size:12px; }
   </style>
   <script>
     // In-memory UI state
@@ -334,6 +338,32 @@
       await refreshAll();
     }
 
+    function closeExplain() {
+      const m = document.getElementById('explainModal');
+      if (m) m.remove();
+    }
+
+    async function explainSettlement() {
+      const btn = document.getElementById('explainBtn');
+      if (btn) { btn.disabled = true; btn.textContent = 'Generating...'; }
+      try {
+        const res = await api('/api/explain');
+        const backdrop = document.createElement('div'); backdrop.className = 'modal-backdrop'; backdrop.id = 'explainModal';
+        const modal = document.createElement('div'); modal.className = 'modal';
+        const h = document.createElement('h3'); h.textContent = 'Settlement Explanation'; modal.appendChild(h);
+        const p = document.createElement('p'); p.textContent = res.explanation || 'Explanation unavailable.'; modal.appendChild(p);
+        const detailsToggle = document.createElement('button'); detailsToggle.className='btn btn-ghost'; detailsToggle.textContent='Show prompt';
+        const pre = document.createElement('pre'); pre.style.display='none'; pre.textContent = res.prompt;
+        detailsToggle.onclick = () => { pre.style.display = pre.style.display==='none' ? 'block':'none'; detailsToggle.textContent = pre.style.display==='none' ? 'Show prompt':'Hide prompt'; };
+        modal.appendChild(detailsToggle);
+        modal.appendChild(pre);
+        const close = document.createElement('button'); close.className='btn'; close.style.marginTop='12px'; close.textContent='Close'; close.onclick=closeExplain; modal.appendChild(close);
+        backdrop.appendChild(modal);
+        document.body.appendChild(backdrop);
+      } catch (e) { alert('Failed to generate explanation: ' + e); }
+      finally { if (btn) { btn.disabled = false; btn.textContent = 'Explain settlement'; } }
+    }
+
     async function refreshExpenses() {
       const list = await api('/api/expenses');
       const byPayer = {};
@@ -482,6 +512,9 @@
       <tbody id="settleBody"></tbody>
     </table>
     <div class="muted">This is a live preview based on current balances.</div>
+    <div style="margin-top:8px;">
+      <button id="explainBtn" type="button" class="btn" onclick="explainSettlement()">Explain settlement</button>
+    </div>
   </section>
 
   <section>
