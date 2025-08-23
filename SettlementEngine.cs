@@ -142,6 +142,26 @@ namespace TripSplit
 				.ToList();
 		}
 
+		public string BuildExplanationPrompt()
+		{
+			var net = GetNetBalances();
+			var totals = GetTotalsSpent();
+			var expenses = GetExpenses();
+			var transfers = SettleUp();
+			var sb = new System.Text.StringBuilder();
+			sb.AppendLine("People:" + string.Join(",", _names));
+			sb.AppendLine("Totals:" + string.Join(";", totals.Select(t => $"{t.Name}:{t.Spent}")));
+			sb.AppendLine("NetBalances:" + string.Join(";", net.Select(n => $"{n.Name}:{n.Net}")));
+			sb.AppendLine("Expenses:");
+			foreach (var e in expenses)
+			{
+				sb.AppendLine($"- {e.Description}|{e.Payer}|{e.Amount}|{string.Join(",", e.Participants)}");
+			}
+			sb.AppendLine("Transfers:" + string.Join(";", transfers.Select(tr => $"{tr.From}->{tr.To}:{tr.Amount}")));
+			sb.AppendLine("Instruction: Explain how the transfers settle the net balances to zero. Provide a concise rationale for each transfer and the final state. Keep under 250 words.");
+			return sb.ToString();
+		}
+
 		private static decimal Min(decimal a, decimal b) => a < b ? a : b;
 
 		private static Dictionary<string, decimal> AllocateShares(decimal totalAmount, IReadOnlyList<string> participants)

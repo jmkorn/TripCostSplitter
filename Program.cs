@@ -4,6 +4,7 @@ using ClosedXML.Excel;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddSingleton<SettlementEngine>();
+builder.Services.AddHttpClient<ExplanationService>();
 
 var app = builder.Build();
 
@@ -145,6 +146,13 @@ app.MapGet("/api/export/excel", (SettlementEngine engine) =>
 	ms.Position = 0;
 	var fileName = $"trip-export-{DateTime.UtcNow:yyyyMMdd-HHmmss}.xlsx";
 	return Results.File(ms.ToArray(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
+});
+
+// Explanation endpoint (placeholder: returns structured prompt + simple generated explanation stub)
+app.MapGet("/api/explain", async (ExplanationService svc, CancellationToken ct) =>
+{
+	var (explanation, prompt, usedLLM) = await svc.GenerateExplanationAsync(ct);
+	return Results.Ok(new { prompt, explanation, usedLLM });
 });
 
 app.Run();
