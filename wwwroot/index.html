@@ -124,8 +124,7 @@
     ul { list-style: none; padding-left: 0; margin: 0; }
     ul li { padding: 6px 0; border-bottom: 1px dashed var(--border); }
     ul li:last-child { border-bottom: 0; }
-    #net li.pos { color: var(--success); font-weight: 600; }
-    #net li.neg { color: var(--danger); font-weight: 600; }
+  /* net list styles removed (net balances now in matrix) */
 
     code { background: #f3f4f6; padding: 2px 6px; border-radius: 4px; }
   table.expenses { width: 100%; border-collapse: collapse; margin: 4px 0 16px; }
@@ -137,6 +136,31 @@
   table.transfers th, table.transfers td { padding: 6px 8px; border-bottom: 1px solid var(--border); font-size: 13px; }
   table.transfers th { background: color-mix(in srgb, var(--primary) 8%, var(--card-bg)); text-align: left; }
   table.transfers tbody tr:last-child td { border-bottom: 0; }
+  /* Expense matrix */
+  .matrix-container { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; background: var(--card-bg); box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+  table.matrix { border-collapse: separate; border-spacing:0; font-size: 12.5px; min-width: max(760px, 100%); }
+  table.matrix th, table.matrix td { padding: 6px 8px; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); background: #fff; }
+  table.matrix th { position: sticky; top:0; z-index:5; background: linear-gradient(#f1f5f9,#e2e8f0); font-weight:600; font-size:12px; text-align:center; }
+  table.matrix th.sticky-col, table.matrix td.sticky-col { position: sticky; left:0; z-index:6; background: linear-gradient(#f8fafc,#f1f5f9); font-weight:600; text-align:left; }
+  table.matrix td.sticky-col { z-index:4; }
+  table.matrix tr:last-child td { border-bottom:0; }
+  table.matrix th:last-child, table.matrix td:last-child { border-right:0; }
+  .cell-pos { color: var(--success); font-weight:600; }
+  .cell-neg { color: var(--danger); font-weight:600; }
+  .matrix-header-meta { display:block; font-weight:400; font-size:10px; color: var(--muted); }
+  .matrix-col-header { white-space:nowrap; }
+  .matrix-delete { cursor:pointer; color: var(--danger); font-weight:600; font-size:11px; margin-left:4px; }
+  .matrix-delete:hover { filter:brightness(0.85); }
+  .legend { display:flex; gap:16px; font-size:12px; margin:8px 0 4px; color: var(--muted); }
+  .legend span { display:inline-flex; align-items:center; gap:4px; }
+  .legend .swatch { width:12px; height:12px; border-radius:3px; }
+  .swatch-pos { background: color-mix(in srgb, var(--success) 60%, white); border:1px solid color-mix(in srgb, var(--success) 70%, #000); }
+  .swatch-neg { background: color-mix(in srgb, var(--danger) 50%, white); border:1px solid color-mix(in srgb, var(--danger) 70%, #000); }
+  .matrix-net-col { background: linear-gradient(#f8fafc,#f1f5f9); font-weight:600; }
+  .matrix-footer { font-size:11px; color: var(--muted); margin-top:6px; }
+  /* Actionable cell hover effect */
+  table.matrix td.actionable { transition: background-color 120ms ease, opacity 120ms ease; }
+  table.matrix td.actionable:hover { background: color-mix(in srgb, var(--primary) 12%, #fff); opacity: 1 !important; }
   </style>
   <script>
     // In-memory UI state
@@ -150,10 +174,8 @@
 
     async function refreshAll() {
       await refreshPeople();
-  await refreshExpenses(); // ensure local expenses up to date
-  await refreshTransfersPreview();
-  await renderLocalNet(); // compute net after syncing expenses
-      await refreshExpenses();
+	  await refreshExpenses(); // ensure local expenses up to date
+	  await refreshTransfersPreview();
       await refreshTotals();
     }
 
@@ -193,34 +215,9 @@
       window.state.people = [...people];
     }
 
-    function rebuildParticipantsOptions() {
-      const payer = document.getElementById('payer').value;
-      const participants = document.getElementById('participants');
-      participants.innerHTML = '';
-      (window.peopleCache || []).forEach(p => {
-        if (p === payer) return; // exclude payer; they are auto-included
-        const o2 = document.createElement('option'); o2.value = p; o2.textContent = p; participants.appendChild(o2);
-      });
-    }
+  function rebuildParticipantsOptions() { /* no-op after removal of manual participants select */ }
 
-    async function renderLocalNet() {
-      let net;
-      if ((window.state.expenses || []).length === 0) {
-        // Fallback to server net if local has no expenses yet
-        net = await api('/api/net');
-      } else {
-        net = computeLocalNet(window.state.people, window.state.expenses);
-      }
-      const c = document.getElementById('net');
-      c.innerHTML = '';
-      net.forEach(x => {
-        const li = document.createElement('li');
-        const sign = x.net >= 0 ? '+' : '';
-        li.className = x.net >= 0 ? 'pos' : 'neg';
-        li.textContent = `${x.name}: ${sign}${x.net.toLocaleString(undefined, { style: 'currency', currency: 'USD' })}`;
-        c.appendChild(li);
-      });
-    }
+  // renderLocalNet removed (net balances displayed within matrix now)
 
     function computeLocalNet(people, expenses) {
       const net = new Map();
@@ -289,13 +286,10 @@
       // Update local state
       if (!window.state.people.includes(name)) window.state.people.push(name);
       await refreshPeople();
-      await renderLocalNet();
+  // net balances recalculated implicitly in matrix
     }
 
-    function getSelectedParticipants() {
-      const sel = document.getElementById('participants');
-      return Array.from(sel.selectedOptions).map(o => o.value);
-    }
+  function getSelectedParticipants() { return (window.peopleCache || []).slice(); }
 
     async function addExpense(ev) {
       ev.preventDefault();
@@ -303,8 +297,8 @@
       const amount = Number(document.getElementById('amount').value);
       const payer = document.getElementById('payer').value;
       const participants = getSelectedParticipants();
-      if (!description || !isFinite(amount) || amount <= 0 || !payer || participants.length === 0) {
-        alert('Please fill description, positive amount, payer, and at least one participant.');
+      if (!description || !isFinite(amount) || amount <= 0 || !payer) {
+        alert('Please fill description, positive amount, and payer.');
         return;
       }
       await api('/api/expenses', { method: 'POST', body: JSON.stringify({ description, amount, payer, participants }) });
@@ -312,7 +306,7 @@
       window.state.expenses.push({ description, amount, payer, participants });
       document.getElementById('desc').value = '';
       document.getElementById('amount').value = '';
-      await renderLocalNet();
+  // net balances recalculated implicitly in matrix
       await refreshTransfersPreview();
   await refreshExpenses();
   await refreshTotals();
@@ -333,45 +327,92 @@
       });
   // sync local state to allow accurate client-side net recomputation
   window.state.expenses = list.map(e => ({ description: e.description, amount: e.amount, payer: e.payer, participants: e.participants }));
-      const container = document.getElementById('expenses');
+      buildExpenseMatrix(list);
+    }
+
+    function buildExpenseMatrix(expenses) {
+      const container = document.getElementById('expenseMatrixContainer');
       if (!container) return;
+      const people = [...window.state.people];
       container.innerHTML = '';
-      const payers = Object.keys(byPayer).sort((a,b)=>a.localeCompare(b));
-      if (payers.length === 0) { container.innerHTML = '<div class="muted">No expenses yet.</div>'; return; }
-      payers.forEach(p => {
-        const sec = document.createElement('div');
-        const header = document.createElement('h3');
-        header.textContent = p;
-        header.style.margin = '12px 0 4px';
-        sec.appendChild(header);
-        const table = document.createElement('table');
-        table.className = 'expenses';
-        const thead = document.createElement('thead');
-        thead.innerHTML = '<tr><th style="width:40%">Description</th><th style="width:15%">Amount</th><th>Participants</th><th style="width:90px">Actions</th></tr>';
-        table.appendChild(thead);
-        const tbody = document.createElement('tbody');
-        byPayer[p].forEach(e => {
-          const tr = document.createElement('tr');
-          const participants = e.participants.join(', ');
-          const tdDesc = document.createElement('td'); tdDesc.textContent = e.description;
-          const tdAmt = document.createElement('td'); tdAmt.textContent = e.amount.toLocaleString(undefined,{style:'currency',currency:'USD'});
-          const tdParts = document.createElement('td'); tdParts.textContent = participants;
-          const tdActions = document.createElement('td');
-          const del = document.createElement('button');
-          del.textContent = 'Delete';
-          del.className = 'btn btn-ghost';
-          del.onclick = async () => { if (confirm('Delete this expense?')) { await api('/api/expenses/' + e.id, { method: 'DELETE' }); await refreshAll(); } };
-          tdActions.appendChild(del);
-          tr.appendChild(tdDesc);
-          tr.appendChild(tdAmt);
-          tr.appendChild(tdParts);
-          tr.appendChild(tdActions);
-          tbody.appendChild(tr);
-        });
-        table.appendChild(tbody);
-        sec.appendChild(table);
-        container.appendChild(sec);
+      if (expenses.length === 0 || people.length === 0) {
+        container.innerHTML = '<div class="muted">No data – add some people and expenses.</div>';
+        return;
+      }
+      // Build matrix data
+      // Pre-compute shares per expense
+      const matrixCols = expenses.map((e, idx) => {
+        const participants = Array.from(new Set([...(e.participants||[]), e.payer]));
+        const shares = allocateShares(e.amount, participants);
+        return { index: idx+1, id: e.id, description: e.description, payer: e.payer, amount: e.amount, participants, shares };
       });
+
+      const table = document.createElement('table');
+      table.className = 'matrix';
+      const thead = document.createElement('thead');
+      const headerRow = document.createElement('tr');
+      // First corner cell
+      const corner = document.createElement('th'); corner.className='sticky-col'; corner.textContent='Person'; headerRow.appendChild(corner);
+      matrixCols.forEach(col => {
+        const th = document.createElement('th'); th.className='matrix-col-header';
+        const title = document.createElement('span'); title.textContent = col.description || '(Untitled)';
+        const meta = document.createElement('span'); meta.className='matrix-header-meta'; meta.textContent = `${col.payer} • ${col.amount.toLocaleString(undefined,{style:'currency',currency:'USD'})}`;
+        th.appendChild(title); th.appendChild(meta);
+        const del = document.createElement('span'); del.textContent='✕'; del.className='matrix-delete'; del.title='Delete expense';
+        del.onclick = async () => { if (confirm('Delete this expense?')) { await api('/api/expenses/' + col.id, { method: 'DELETE' }); await refreshAll(); } };
+        th.appendChild(del);
+        headerRow.appendChild(th);
+      });
+      const netTh = document.createElement('th'); netTh.textContent='Net'; netTh.className='matrix-col-header'; headerRow.appendChild(netTh);
+      thead.appendChild(headerRow);
+      table.appendChild(thead);
+
+      const tbody = document.createElement('tbody');
+      // Precompute net balances (client side for speed)
+  const nets = computeLocalNet(people, window.state.expenses);
+      const netMap = new Map(nets.map(n => [n.name, n.net]));
+      people.forEach(person => {
+        const tr = document.createElement('tr');
+        const nameTd = document.createElement('td'); nameTd.textContent = person; nameTd.className='sticky-col'; tr.appendChild(nameTd);
+        matrixCols.forEach(col => {
+          const td = document.createElement('td');
+          td.dataset.expenseId = col.id;
+          td.dataset.person = person;
+          const isPayer = person === col.payer;
+          const isParticipant = col.participants.includes(person);
+          if (isPayer) {
+            td.textContent = '+' + col.amount.toLocaleString(undefined,{style:'currency',currency:'USD'});
+            td.className='cell-pos';
+            td.title = 'Payer (cannot toggle)';
+          } else if (isParticipant) {
+            const share = col.shares.get(person) || 0;
+            td.textContent = '-' + share.toLocaleString(undefined,{style:'currency',currency:'USD'});
+            td.className='cell-neg actionable';
+            td.title = 'Click to remove this person from the expense';
+            td.style.cursor = 'pointer';
+            td.onclick = () => toggleParticipation(col.id, person, false);
+          } else {
+            td.textContent = '0';
+            td.style.opacity = 0.35;
+            td.title = 'Click to include this person';
+            td.style.cursor = 'pointer';
+            td.classList.add('actionable');
+            td.onclick = () => toggleParticipation(col.id, person, true);
+          }
+          tr.appendChild(td);
+        });
+        const netTd = document.createElement('td');
+        const netVal = netMap.get(person) || 0;
+        const sign = netVal >=0 ? '+' : '';
+        netTd.textContent = sign + netVal.toLocaleString(undefined,{style:'currency',currency:'USD'});
+        netTd.className = 'matrix-net-col ' + (netVal>=0? 'cell-pos':'cell-neg');
+        tr.appendChild(netTd);
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      container.appendChild(table);
+      const footer = document.createElement('div'); footer.className='matrix-footer'; footer.textContent='Positive cells show who paid an expense; negative cells show each participant\'s share owed. Net column matches current balances.';
+      container.appendChild(footer);
     }
 
     async function importPeopleFromFile(ev) {
@@ -394,6 +435,28 @@
         li.textContent = `${t.name}: ${t.spent.toLocaleString(undefined,{style:'currency',currency:'USD'})}`;
         c.appendChild(li);
       });
+    }
+
+    async function toggleParticipation(expenseId, person, include) {
+      try {
+        // Find existing expense participants from state
+        const full = await api('/api/expenses');
+        const exp = full.find(e => e.id === expenseId);
+        if (!exp) return;
+        let participants = Array.from(new Set([...(exp.participants||[])]));
+        if (include) {
+          if (!participants.includes(person)) participants.push(person);
+        } else {
+          participants = participants.filter(p => p !== person);
+        }
+        // Ensure we don't remove payer
+        if (!participants.includes(exp.payer)) participants.push(exp.payer);
+        await api(`/api/expenses/${expenseId}/participants`, { method: 'POST', body: JSON.stringify({ participants }) });
+        await refreshAll();
+      } catch (err) {
+        console.error(err);
+        alert('Failed to update participation: ' + err);
+      }
     }
 
     window.addEventListener('DOMContentLoaded', refreshAll);
@@ -422,40 +485,39 @@
     <div id="people" class="list"></div>
   </section>
 
-  <section>
-    <form onsubmit="addExpense(event)">
-      <label>Description</label>
-      <input id="desc" placeholder="Dinner, Gas, Hotel..." />
-
-      <div class="grid">
-        <div>
-          <label>Amount</label>
+  <section id="matrixSection">
+    <h2 style="display:flex;align-items:center;gap:12px; margin-bottom:12px;">Expense Matrix <span class="muted" style="font-size:12px;font-weight:400;">(people vs. transactions – click a cell to toggle participation)</span></h2>
+    <form onsubmit="addExpense(event)" style="margin-bottom:12px;">
+      <div class="row" style="align-items:flex-end; gap:12px; flex-wrap:wrap;">
+        <div style="flex:2 1 240px;">
+          <label style="margin-top:0;">Description</label>
+          <input id="desc" placeholder="Dinner, Gas, Hotel..." />
+        </div>
+        <div style="flex:1 1 140px;">
+          <label style="margin-top:0;">Amount</label>
           <input id="amount" type="number" step="0.01" min="0" placeholder="0.00" />
         </div>
-        <div>
-          <label>Payer</label>
+        <div style="flex:1 1 180px;">
+          <label style="margin-top:0;">Payer</label>
           <select id="payer"></select>
         </div>
+        <div style="flex:0 0 auto; padding-top:22px;">
+          <button type="submit" class="btn">Add expense</button>
+        </div>
       </div>
-
-      <label>Participants (multi-select)</label>
-      <select id="participants" multiple size="5" style="width: 100%;"></select>
-      <div class="muted">Payer is automatically included; select the other people sharing this expense.</div>
-
-      <!-- Weights removed -->
-
-      <div class="actions" style="margin-top: 8px;">
-        <button type="submit" class="btn">Add expense</button>
-      </div>
-      <br>
-      <div class="muted">Expenses are split equally among participants.</div>
+      <div class="muted" style="font-size:12px; margin-top:4px;">All people are included by default; remove participants by clicking cells below.</div>
     </form>
+    <div class="legend">
+      <span><span class="swatch swatch-pos"></span> Payer amount (+)</span>
+      <span><span class="swatch swatch-neg"></span> Participant share (-)</span>
+      <span style="font-size:11px;">Click a 0 to include a person; click a negative share to remove them.</span>
+    </div>
+    <div id="expenseMatrixContainer" class="matrix-container"></div>
   </section>
 
-  <section>
-    <h2>Net balances</h2>
-    <ul id="net"></ul>
-  </section>
+  <!-- Original expense submission section removed (now inside matrix section) -->
+
+  <!-- Net balances section removed; values now shown in matrix Net column -->
 
   <section>
     <h2>Suggested transfers</h2>
@@ -474,14 +536,9 @@
   </section>
   
   <section>
-    <h2>Expenses by payer</h2>
-    <div id="expenses"></div>
-  </section>
-
-  <section>
     <h2>Export</h2>
     <button type="button" class="btn" onclick="window.location='/api/export/excel'">Export to Excel</button>
-    <div class="muted" style="margin-top:8px;">Downloads an .xlsx with people, totals, net balances, expenses, and transfers.</div>
+  <div class="muted" style="margin-top:8px;">Downloads an .xlsx with people, totals, expenses, transfers, and matrix (including per-person net).</div>
   </section>
 
 </body>

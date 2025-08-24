@@ -15,6 +15,8 @@ namespace TripSplit
 		private readonly List<decimal> _netBalances = new();
 		private readonly List<Expense> _expenses = new();
 
+		public IReadOnlyList<string> GetPeople() => _names.ToList();
+
 		public void Clear()
 		{
 			_nameToIndex.Clear();
@@ -140,6 +142,27 @@ namespace TripSplit
 			return _names
 				.Select(n => new TotalSpent(n, Math.Round(byPayer.TryGetValue(n, out var amt) ? amt : 0m, 2, MidpointRounding.AwayFromZero)))
 				.ToList();
+		}
+
+		public bool UpdateExpenseParticipants(Guid id, IEnumerable<string> participants)
+		{
+			var idx = _expenses.FindIndex(e => e.Id == id);
+			if (idx < 0) return false;
+			var exp = _expenses[idx];
+			var distinct = participants?.Distinct(StringComparer.OrdinalIgnoreCase).Where(p => !string.IsNullOrWhiteSpace(p)).ToList() ?? new List<string>();
+			if (!distinct.Contains(exp.Payer, StringComparer.OrdinalIgnoreCase))
+			{
+				distinct.Add(exp.Payer);
+			}
+			// validate all participants exist
+			foreach (var p in distinct)
+			{
+				if (!_nameToIndex.ContainsKey(p)) throw new ArgumentException($"Unknown person {p}. Add them first.");
+			}
+			// Replace record
+			_expenses[idx] = exp with { Participants = distinct };
+			RecalculateNetBalances();
+			return true;
 		}
 
 		private static decimal Min(decimal a, decimal b) => a < b ? a : b;
