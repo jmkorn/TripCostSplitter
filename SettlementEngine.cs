@@ -212,6 +212,75 @@ namespace TripSplit
 		}
 
 		private static decimal CentsToDecimal(long cents) => cents / 100m;
+
+		/// <summary>
+		/// Builds a deterministic, compact plain‑text prompt describing the current settlement state
+		/// for the LLM explanation. Contains: participants, each expense with allocated shares,
+		/// net balances, and suggested transfers produced by the minimal settlement algorithm.
+		/// Keeps wording stable so cached / repeated calls produce consistent model behavior.
+		/// </summary>
+		public string BuildExplanationPrompt()
+		{
+			var sb = new System.Text.StringBuilder();
+			var people = GetPeople();
+			var expenses = GetExpenses();
+			var nets = GetNetBalances();
+			var transfers = SettleUp();
+
+			sb.AppendLine("Trip cost settlement context");
+			sb.AppendLine("Participants (alphabetical): " + string.Join(", ", people.OrderBy(p => p)));
+			sb.AppendLine();
+
+			if (expenses.Count == 0)
+			{
+				sb.AppendLine("No expenses have been recorded. Everyone is settled.");
+				// Still include empty sections for structural stability
+				sb.AppendLine();
+				sb.AppendLine("Net balances: (all 0.00)");
+				foreach (var p in people.OrderBy(p => p)) sb.AppendLine($"- {p}: 0.00");
+				sb.AppendLine("Suggested transfers: none");
+				sb.AppendLine();
+				sb.AppendLine("Instruction: Provide a brief confirmation that no settlement actions are needed.");
+				return sb.ToString();
+			}
+
+			sb.AppendLine("Expenses (each shows equal-share allocation in USD):");
+			for (int i = 0; i < expenses.Count; i++)
+			{
+				var e = expenses[i];
+				var shares = AllocateShares(e.Amount, e.Participants);
+				var shareParts = e.Participants
+					.OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
+					.Select(p => $"{p}:{shares[p]:0.00}");
+				sb.AppendLine($"{i+1}. {e.Description} | Amount:{e.Amount:0.00} | Payer:{e.Payer} | Participants:{string.Join(",", e.Participants)} | Shares:{string.Join("; ", shareParts)}");
+			}
+			sb.AppendLine();
+
+			sb.AppendLine("Net balances (positive means the person is owed money; negative means they owe):");
+			foreach (var n in nets.OrderBy(n => n.Name, StringComparer.OrdinalIgnoreCase))
+			{
+				var sign = n.Net >= 0 ? "+" : ""; // show + for positives to disambiguate
+				sb.AppendLine($"- {n.Name}: {sign}{n.Net:0.00}");
+			}
+			sb.AppendLine();
+
+			sb.AppendLine("Suggested settlement transfers (minimal set):");
+			if (transfers.Count == 0)
+			{
+				sb.AppendLine("(none – everyone already even)");
+			}
+			else
+			{
+				foreach (var t in transfers)
+				{
+					sb.AppendLine($"- {t.From} -> {t.To}: {t.Amount:0.00}");
+				}
+			}
+			sb.AppendLine();
+
+			sb.AppendLine("Instruction to model: In under 250 words, explain concisely why each participant owes or is owed these amounts, referencing how expenses were split, and summarize the transfers. Avoid repeating the raw tables verbatim; focus on rationale and fairness.");
+			return sb.ToString();
+		}
 	}
 }
 

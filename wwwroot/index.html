@@ -459,6 +459,29 @@
       }
     }
 
+    async function generateExplanation() {
+      const panel = document.getElementById('explanationPanel');
+      const loading = document.getElementById('explanationLoading');
+      const content = document.getElementById('explanationContent');
+      const promptEl = document.getElementById('explanationPrompt');
+      panel.style.display = 'block';
+      loading.style.display = 'block';
+      content.textContent = '';
+      promptEl.textContent = '';
+      try {
+        const res = await api('/api/explain');
+        loading.style.display = 'none';
+        content.textContent = res.explanation || '(No explanation returned)';
+        promptEl.textContent = res.prompt || '';
+        if (res.usedLLM === false) {
+          content.innerHTML = '<strong style="color:#b45309;">(AI not configured / fallback)</strong>\n' + content.textContent;
+        }
+      } catch (err) {
+        loading.style.display = 'none';
+        content.textContent = 'Failed to get explanation: ' + err;
+      }
+    }
+
     window.addEventListener('DOMContentLoaded', refreshAll);
   </script>
 </head>
@@ -515,10 +538,6 @@
     <div id="expenseMatrixContainer" class="matrix-container"></div>
   </section>
 
-  <!-- Original expense submission section removed (now inside matrix section) -->
-
-  <!-- Net balances section removed; values now shown in matrix Net column -->
-
   <section>
     <h2>Suggested transfers</h2>
     <table class="transfers">
@@ -527,7 +546,18 @@
       </thead>
       <tbody id="settleBody"></tbody>
     </table>
-    <div class="muted">This is a live preview based on current balances.</div>
+    <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-top:4px;">
+      <div class="muted">This is a live preview based on current balances.</div>
+      <button type="button" class="btn" id="explainBtn" onclick="generateExplanation()">Explain this</button>
+    </div>
+    <div id="explanationPanel" style="display:none; margin-top:12px; border:1px solid var(--border); padding:12px; border-radius:10px; background:#f1f5f9;">
+      <div id="explanationLoading" class="muted" style="display:none;">Generating explanation…</div>
+      <div id="explanationContent" style="white-space:pre-wrap; font-size:13px; line-height:1.45;"></div>
+      <details style="margin-top:8px;">
+        <summary style="cursor:pointer; font-size:12px;">Show prompt</summary>
+        <pre id="explanationPrompt" style="white-space:pre-wrap; font-size:11px; background:#fff; padding:8px; border:1px solid var(--border); border-radius:6px; overflow:auto; max-height:200px;"></pre>
+      </details>
+    </div>
   </section>
 
   <section>

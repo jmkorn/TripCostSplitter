@@ -4,6 +4,7 @@ using ClosedXML.Excel;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddSingleton<SettlementEngine>();
+builder.Services.AddSingleton<ExplanationService>();
 
 var app = builder.Build();
 
@@ -66,6 +67,13 @@ app.MapGet("/api/totals", (SettlementEngine engine) =>
 app.MapGet("/api/settle", (SettlementEngine engine) =>
 {
 	return Results.Ok(engine.SettleUp());
+});
+
+// Generate an AI (or fallback) explanation of the current settlement
+app.MapGet("/api/explain", async (ExplanationService svc, CancellationToken ct) =>
+{
+	var (explanation, prompt, usedLLM) = await svc.GenerateExplanationAsync(ct);
+	return Results.Ok(new { explanation, prompt, usedLLM });
 });
 
 app.MapPost("/api/reset", (SettlementEngine engine) =>
