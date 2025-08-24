@@ -12,7 +12,7 @@ app.UseStaticFiles();
 
 app.MapGet("/api/people", (SettlementEngine engine) =>
 {
-	return Results.Ok(engine.GetNetBalances().Select(x => x.Name).ToList());
+	return Results.Ok(engine.GetPeople());
 });
 
 app.MapPost("/api/people", (SettlementEngine engine, PersonDto dto) =>
@@ -46,10 +46,12 @@ app.MapDelete("/api/expenses/{id:guid}", (SettlementEngine engine, Guid id) =>
 	return engine.RemoveExpense(id) ? Results.Ok() : Results.NotFound();
 });
 
-app.MapGet("/api/net", (SettlementEngine engine) =>
+app.MapPost("/api/expenses/{id:guid}/participants", (SettlementEngine engine, Guid id, UpdateParticipantsDto dto) =>
 {
-	return Results.Ok(engine.GetNetBalances());
+	return engine.UpdateExpenseParticipants(id, dto.Participants) ? Results.Ok() : Results.NotFound();
 });
+
+// Removed /api/net since net balances are now shown within the matrix locally
 
 app.MapGet("/api/expenses", (SettlementEngine engine) =>
 {
@@ -75,7 +77,7 @@ app.MapPost("/api/reset", (SettlementEngine engine) =>
 app.MapGet("/api/export/excel", (SettlementEngine engine) =>
 {
 	var totals = engine.GetTotalsSpent();
-	var net = engine.GetNetBalances();
+	var net = engine.GetNetBalances(); // still used internally for transfers and matrix export
 	var expenses = engine.GetExpenses();
 	var transfers = engine.SettleUp();
 
@@ -98,14 +100,7 @@ app.MapGet("/api/export/excel", (SettlementEngine engine) =>
 		wsTotals.Cell(i + 2, 2).Value = totals[i].Spent;
 	}
 
-	// Net Balances
-	var wsNet = wb.AddWorksheet("NetBalances");
-	wsNet.Cell(1, 1).Value = "Name"; wsNet.Cell(1, 2).Value = "Net";
-	for (int i = 0; i < net.Count; i++)
-	{
-		wsNet.Cell(i + 2, 1).Value = net[i].Name;
-		wsNet.Cell(i + 2, 2).Value = net[i].Net;
-	}
+// NetBalances worksheet removed (net now visible in matrix export Net column)
 
 	// Expenses
 	var wsExp = wb.AddWorksheet("Expenses");
@@ -135,6 +130,72 @@ app.MapGet("/api/export/excel", (SettlementEngine engine) =>
 		wsTrans.Cell(i + 2, 3).Value = t.Amount;
 	}
 
+
+	// Expense Matrix (people vs expenses)
+	var wsMatrix = wb.AddWorksheet("Matrix");
+	// Header row: first cell blank then each expense description with index, final Net column
+	wsMatrix.Cell(1,1).Value = "Person";
+	for (int c = 0; c < expenses.Count; c++)
+	{
+		var e = expenses[c];
+		wsMatrix.Cell(1, c+2).Value = $"{c+1}. {e.Description}";
+		wsMatrix.Cell(2, c+2).Value = $"Payer: {e.Payer}";
+		wsMatrix.Cell(3, c+2).Value = $"Amt: {e.Amount}";
+	}
+	wsMatrix.Cell(1, expenses.Count + 2).Value = "Net";
+	wsMatrix.Range(1,1,3,1).Merge(); // merge person header vertical
+	// People rows start at row 4
+	for (int i = 0; i < net.Count; i++)
+	{
+		var person = net[i].Name;
+		var row = i + 4;
+		wsMatrix.Cell(row,1).Value = person;
+		for (int c = 0; c < expenses.Count; c++)
+		{
+			var e = expenses[c];
+			var col = c + 2;
+			decimal value = 0m;
+			// Payer gets +amount
+			if (string.Equals(e.Payer, person, StringComparison.OrdinalIgnoreCase))
+			{
+				value = e.Amount;
+			}
+			else if (e.Participants.Contains(person, StringComparer.OrdinalIgnoreCase))
+			{
+				// participant share negative (inline allocation copied from engine for determinism)
+				var participants = e.Participants;
+				var totalAmount = e.Amount;
+				var totalCents = (long)(Math.Round(totalAmount, 2, MidpointRounding.AwayFromZero) * 100m);
+				var count = participants.Count;
+				if (count > 0)
+				{
+					var basePerPerson = totalCents / count;
+					var remainder = totalCents - (basePerPerson * count);
+					var baseCentsByPerson = new Dictionary<string,long>(StringComparer.OrdinalIgnoreCase);
+					foreach (var p in participants) baseCentsByPerson[p] = basePerPerson;
+					for (int r = 0; r < remainder; r++)
+					{
+						var p = participants[r % participants.Count];
+						baseCentsByPerson[p] += 1;
+					}
+					decimal share = 0m;
+					if (baseCentsByPerson.TryGetValue(person, out var cents)) share = cents / 100m;
+					value = -share;
+				}
+			}
+			// non participant cells explicitly 0 (already default)
+			wsMatrix.Cell(row, col).Value = value;
+		}
+		wsMatrix.Cell(row, expenses.Count + 2).Value = net[i].Net;
+	}
+
+	// Style matrix (simple): bold headers, freeze panes
+	wsMatrix.SheetView.FreezeRows(3);
+	wsMatrix.Row(1).Style.Font.Bold = true;
+	wsMatrix.Row(2).Style.Font.Italic = true;
+	wsMatrix.Row(3).Style.Font.Italic = true;
+	wsMatrix.Column(1).Style.Font.Bold = true;
+
 	foreach (var ws in wb.Worksheets)
 	{
 		ws.Columns().AdjustToContents();
@@ -151,3 +212,4 @@ app.Run();
 
 public sealed record PersonDto(string Name);
 public sealed record ExpenseDto(string Description, decimal Amount, string Payer, List<string> Participants);
+public sealed record UpdateParticipantsDto(List<string> Participants);
