@@ -72,14 +72,54 @@ app.MapGet("/api/settle", (SettlementEngine engine) =>
 // Generate an AI (or fallback) explanation of the current settlement
 app.MapGet("/api/explain", async (ExplanationService svc, CancellationToken ct) =>
 {
-	var (explanation, prompt, usedLLM) = await svc.GenerateExplanationAsync(ct);
-	return Results.Ok(new { explanation, prompt, usedLLM });
+	var (llmExplanation, algorithmicExplanation, prompt, usedLLM) = await svc.GenerateExplanationAsync(ct);
+	return Results.Ok(new { llmExplanation, algorithmicExplanation, prompt, usedLLM });
 });
 
 app.MapPost("/api/reset", (SettlementEngine engine) =>
 {
 	engine.Clear();
 	return Results.Ok();
+});
+
+// Import expenses from a raw text payload: delimited by newline, comma, or semicolon.
+// Expected token order repeating: description | amount | payer
+// Participants are set to all current people (consistent with UI default behavior).
+app.MapPost("/api/expenses/import", async (SettlementEngine engine, HttpRequest req) =>
+{
+	using var reader = new StreamReader(req.Body);
+	var text = await reader.ReadToEndAsync();
+	if (string.IsNullOrWhiteSpace(text)) return Results.BadRequest("Empty upload");
+	var tokens = text
+		.Split(new[] { '\n', '\r', ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+		.ToList();
+	if (tokens.Count < 3) return Results.BadRequest("Need at least description, amount, payer");
+	var people = engine.GetPeople();
+	int imported = 0, skipped = 0;
+	for (int i = 0; i + 2 < tokens.Count; i += 3)
+	{
+		var desc = tokens[i];
+		var amtRaw = tokens[i + 1];
+		var payer = tokens[i + 2];
+		if (string.IsNullOrWhiteSpace(desc) || string.IsNullOrWhiteSpace(amtRaw) || string.IsNullOrWhiteSpace(payer)) { skipped++; continue; }
+		if (!decimal.TryParse(amtRaw, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var amount))
+		{
+			// Try current culture as fallback
+			if (!decimal.TryParse(amtRaw, out amount)) { skipped++; continue; }
+		}
+		if (amount <= 0m) { skipped++; continue; }
+		if (!people.Contains(payer, StringComparer.OrdinalIgnoreCase)) { skipped++; continue; }
+		try
+		{
+			engine.AddExpense(desc, amount, payer, people); // all people participants
+			imported++;
+		}
+		catch
+		{
+			skipped++;
+		}
+	}
+	return Results.Ok(new { imported, skipped });
 });
 
 app.MapGet("/api/export/excel", (SettlementEngine engine) =>

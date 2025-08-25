@@ -47,15 +47,18 @@ public sealed class ExplanationService
         return _chatClient;
     }
 
-    public async Task<(string explanation, string prompt, bool usedLLM)> GenerateExplanationAsync(CancellationToken ct = default)
+    public async Task<(string llmExplanation, string algorithmicExplanation, string prompt, bool usedLLM)> GenerateExplanationAsync(CancellationToken ct = default)
     {
         var prompt = _engine.BuildExplanationPrompt();
+        var netsForAlgo = _engine.GetNetBalances();
+        var transfersForAlgo = _engine.SettleUp();
+        var algorithmic = BuildAlgorithmicExplanation(netsForAlgo, transfersForAlgo);
         var client = EnsureClient();
         if (client == null)
         {
-            var transfers = _engine.SettleUp();
-            var fallback = transfers.Count == 0 ? "No transfers required because everyone is already settled." : string.Join("\n", new[] { "(LLM not configured – fallback explanation)", "Settlement summary:" }.Concat(transfers.Select(t => $"- {t.From} pays {t.To} {t.Amount:C}")));
-            return (fallback, prompt, false);
+            // No LLM configured; return empty LLM explanation (or brief notice) plus algorithmic explanation
+            var llmNotice = ""; // keep empty so UI can explicitly show lack of LLM output
+            return (llmNotice, algorithmic, prompt, false);
         }
 
         var options = new ChatCompletionOptions
@@ -68,37 +71,39 @@ public sealed class ExplanationService
         options.SetNewMaxCompletionTokensPropertyEnabled(true);
 #pragma warning restore AOAI001
 
+        var sb = new StringBuilder();
+        sb.Append("You are a concise financial explainer that is explaining how a total cost is getting split amongst several participants. Explain it like you are explaining it to middle schoolers.");
+        sb.Append(" Do not explain how some participants fronted the cost and now that must be divided amongst the rest, that is simple. Focus your explanation on the algorithmic approach to settling debts and credits.");
+        var systemMessage = new SystemChatMessage(sb.ToString());
+
         var messages = new List<ChatMessage>
         {
-            new SystemChatMessage("You are a concise financial explainer that is explaining how a total cost is getting split amongst several participants. Keep explanations simple."),
+            systemMessage,
             new UserChatMessage(prompt)
         };
 
+        sb.Clear();
         try
         {
             var response = await client.CompleteChatAsync(messages, options, ct);
             var content = response.Value.Content;
-            var sb = new StringBuilder();
             foreach (var item in content)
             {
                 if (!string.IsNullOrWhiteSpace(item.Text)) sb.Append(item.Text);
             }
             var text = sb.ToString().Trim();
+            // Always return algorithmic alongside; if empty LLM response, usedLLM=false
             if (string.IsNullOrEmpty(text))
             {
-                // Build deterministic algorithmic explanation fallback (empty model response)
-                var transfers = _engine.SettleUp();
-                var nets = _engine.GetNetBalances();
-                var algo = BuildAlgorithmicExplanation(nets, transfers);
-                return ("(LLM returned empty content)\n" + algo, prompt, false);
+                return ("", algorithmic, prompt, false);
             }
-            return (text, prompt, true);
+            return (text, algorithmic, prompt, true);
         }
         catch (Exception ex)
         {
-            var transfers = _engine.SettleUp();
-            var fallback = string.Join("\n", new[] { $"Failed to get LLM explanation: {ex.Message}", "Settlement summary:" }.Concat(transfers.Select(t => $"- {t.From} pays {t.To} {t.Amount:C}")));
-            return (fallback, prompt, false);
+            // Failure -> empty LLM explanation, still show algorithmic
+            Console.WriteLine($"LLM explanation error: {ex.Message}");
+            return ("", algorithmic, prompt, false);
         }
     }
 

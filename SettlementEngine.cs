@@ -278,7 +278,7 @@ namespace TripSplit
 			}
 			sb.AppendLine();
 
-			sb.AppendLine("Instruction to model: In under 250 words, explain concisely why each participant owes or is owed these amounts, referencing how expenses were split, and summarize the transfers. Avoid repeating the raw tables verbatim; focus on rationale and fairness.");
+			sb.AppendLine("Instruction to model: In under 250 words, explain concisely why each participant owes or is owed these amounts. Avoid repeating the raw tables verbatim; focus on rationale and fairness. Keep explanations simple and a tone like you are explaining it to middle schoolers.");
 			return sb.ToString();
 		}
 	}
