@@ -73,7 +73,11 @@ app.MapGet("/api/settle", (SettlementEngine engine) =>
 app.MapGet("/api/explain", async (ExplanationService svc, CancellationToken ct) =>
 {
 	var (llmExplanation, algorithmicExplanation, prompt, usedLLM) = await svc.GenerateExplanationAsync(ct);
-	return Results.Ok(new { llmExplanation, algorithmicExplanation, prompt, usedLLM });
+	// Provide legacy 'explanation' field expected by current frontend (prefers LLM, falls back to algorithmic)
+	var explanation = !string.IsNullOrWhiteSpace(llmExplanation)
+		? llmExplanation
+		: (algorithmicExplanation ?? string.Empty);
+	return Results.Ok(new { explanation, llmExplanation, algorithmicExplanation, prompt, usedLLM });
 });
 
 app.MapPost("/api/reset", (SettlementEngine engine) =>

@@ -53,6 +53,12 @@ public sealed class ExplanationService
         var netsForAlgo = _engine.GetNetBalances();
         var transfersForAlgo = _engine.SettleUp();
         var algorithmic = BuildAlgorithmicExplanation(netsForAlgo, transfersForAlgo);
+        try
+        {
+            Console.WriteLine($"[Explain] Start GenerateExplanationAsync | Configured={IsConfigured} | People={_engine.GetPeople().Count} | Expenses={_engine.GetExpenses().Count}");
+            Console.WriteLine($"[Explain] Prompt length={prompt.Length} chars | First 120: {TruncateForLog(prompt,120)}");
+        }
+        catch { /* logging best-effort */ }
         var client = EnsureClient();
         if (client == null)
         {
@@ -85,11 +91,31 @@ public sealed class ExplanationService
         sb.Clear();
         try
         {
+            Console.WriteLine($"[Explain] Calling Azure OpenAI deployment '{_deployment}' with {messages.Count} messages");
             var response = await client.CompleteChatAsync(messages, options, ct);
+            Console.WriteLine("[Explain] Response received.");
             var content = response.Value.Content;
+            try
+            {
+                // Attempt to log token usage if available (SDK dependent)
+                var usageProp = response.Value.GetType().GetProperty("Usage");
+                var usageVal = usageProp?.GetValue(response.Value);
+                if (usageVal != null)
+                {
+                    var pt = usageVal.GetType().GetProperty("InputTokenCount")?.GetValue(usageVal);
+                    var ctoks = usageVal.GetType().GetProperty("OutputTokenCount")?.GetValue(usageVal) ?? usageVal.GetType().GetProperty("CompletionTokenCount")?.GetValue(usageVal);
+                    var tt = usageVal.GetType().GetProperty("TotalTokenCount")?.GetValue(usageVal);
+                    Console.WriteLine($"[Explain] Token usage | input={pt} output={ctoks} total={tt}");
+                }
+            }
+            catch { }
+            int idx = 0;
             foreach (var item in content)
             {
-                if (!string.IsNullOrWhiteSpace(item.Text)) sb.Append(item.Text);
+                var snippet = item.Text ?? string.Empty;
+                Console.WriteLine($"[Explain] Content[{idx}] length={snippet.Length} | First 100: {TruncateForLog(snippet,100)}");
+                idx++;
+                if (!string.IsNullOrWhiteSpace(snippet)) sb.Append(snippet);
             }
             var text = sb.ToString().Trim();
             // Always return algorithmic alongside; if empty LLM response, usedLLM=false
@@ -97,14 +123,24 @@ public sealed class ExplanationService
             {
                 return ("", algorithmic, prompt, false);
             }
+            Console.WriteLine("[Explain] Final LLM explanation length=" + text.Length + " | First 150: " + TruncateForLog(text,150));
             return (text, algorithmic, prompt, true);
         }
         catch (Exception ex)
         {
             // Failure -> empty LLM explanation, still show algorithmic
             Console.WriteLine($"LLM explanation error: {ex.Message}");
+            Console.WriteLine("[Explain] Exception: " + ex.GetType().Name + " | " + ex.Message);
+            Console.WriteLine("[Explain] Stack: " + ex.StackTrace);
             return ("", algorithmic, prompt, false);
         }
+    }
+
+    private static string TruncateForLog(string value, int max)
+    {
+        if (string.IsNullOrEmpty(value)) return string.Empty;
+        if (value.Length <= max) return value.Replace('\n',' ').Replace('\r',' ');
+        return value.Substring(0, max).Replace('\n',' ').Replace('\r',' ') + "…";
     }
 
     private static string BuildAlgorithmicExplanation(IReadOnlyList<SettlementEngine.NetBalance> netBalances, IReadOnlyList<SettlementEngine.Transfer> transfers)

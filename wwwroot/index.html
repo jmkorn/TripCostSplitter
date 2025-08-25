@@ -312,6 +312,23 @@
   await refreshTotals();
     }
 
+    async function importExpensesFromFile() {
+      const fileInput = document.getElementById('expensesFile');
+      const file = fileInput.files && fileInput.files[0];
+      if (!file) { alert('Select a file first.'); return; }
+      const text = await file.text();
+      try {
+        const res = await fetch('/api/expenses/import', { method: 'POST', body: text });
+        if (!res.ok) throw new Error(await res.text());
+        const info = await res.json();
+        fileInput.value = '';
+        await refreshAll();
+        alert(`Imported ${info.imported} expense(s); skipped ${info.skipped}.`);
+      } catch (err) {
+        alert('Failed to import expenses: ' + err);
+      }
+    }
+
     async function resetAll() {
       await api('/api/reset', { method: 'POST' });
       window.state = { people: [], expenses: [] };
@@ -530,6 +547,14 @@
       </div>
       <div class="muted" style="font-size:12px; margin-top:4px;">All people are included by default; remove participants by clicking cells below.</div>
     </form>
+    <div style="margin-bottom:12px;">
+      <label style="font-weight:600;">Import expenses from file (description, amount, payer tokens delimited by comma, semicolon, or newline)</label>
+      <div class="row" style="gap:8px; align-items:center;">
+        <input type="file" id="expensesFile" accept="text/plain" style="flex:1 1 auto;" />
+        <button type="button" class="btn" onclick="importExpensesFromFile()">Import expenses</button>
+      </div>
+      <div class="muted" style="font-size:11px;">Example tokens order: Dinner,45.60,Alice,Gas,30,Bob ... (triples). Participants default to all people.</div>
+    </div>
     <div class="legend">
       <span><span class="swatch swatch-pos"></span> Payer amount (+)</span>
       <span><span class="swatch swatch-neg"></span> Participant share (-)</span>
